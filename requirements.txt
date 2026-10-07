@@ -1,0 +1,14 @@
+Flask
+pywebview
+Pillow
+pystray
+openai
+WMI
+psutil
+GPUtil
+pywin32
+requests
+spotipy
+Flask-SocketIO
+gevent
+gevent-websocket

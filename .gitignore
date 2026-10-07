@@ -1,0 +1,24 @@
+# --- Entorno y caché de Python ---
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+
+# --- Secretos locales ---
+# Claves de Spotify y Home Assistant: se configuran en .env (ver .env.example).
+.env
+# Token OAuth de Spotify que guarda spotipy.
+.cache
+
+# --- Datos personales que genera la app ---
+conversaciones/
+logs/
+uploads/
+*.log
+
+# --- Scripts de prueba ---
+/pru.py
+
+# --- Sistema ---
+Thumbs.db
+.DS_Store

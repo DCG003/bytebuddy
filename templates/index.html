@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ByteBuddy</title>
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <style>
+        :root {
+            --bg-primary: #121212; --bg-secondary: #1e1e1e;
+            --accent: #bb86fc; --text-primary: #e0e0e0;
+            --text-secondary: #a0a0a0; --user-bg: #2a2a2a;
+        }
+        html, body {
+            height: 100%; margin: 0; padding: 0;
+            background: transparent; color: var(--text-primary);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            overflow: hidden;
+        }
+        .main-container {
+            display: flex; flex-direction: column;
+            height: 100vh; background-color: var(--bg-primary);
+            position: relative;
+        }
+        .chat-container {
+            display: flex; flex-direction: column;
+            height: 100%;
+        }
+        .chat-history {
+            flex-grow: 1;
+            padding: 16px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+        }
+        #empty-placeholder { text-align: center; margin: auto; opacity: 0.2; }
+        #empty-placeholder img { max-width: 50%; }
+        .message-item {
+            display: flex; margin-bottom: 12px;
+            max-width: 90%;
+            align-items: flex-end;
+        }
+        .message-item.user { align-self: flex-end; flex-direction: row-reverse; }
+        .message-item.assistant { align-self: flex-start; }
+        .avatar {
+            width: 40px; height: 40px; border-radius: 50%;
+            background-color: var(--accent); flex-shrink: 0;
+            overflow: hidden;
+        }
+        .avatar img { width: 100%; height: 100%; object-fit: cover; }
+        .message-content { margin: 0 12px; }
+        .bubble {
+            padding: 10px 14px; border-radius: 18px;
+            background-color: var(--user-bg);
+            line-height: 1.4;
+        }
+        .bubble img { max-width: 100%; border-radius: 10px; margin-top: 8px; }
+        .message-item.user .bubble { border-bottom-right-radius: 4px; }
+        .message-item.assistant .bubble { border-bottom-left-radius: 4px; background-color: #2e2e2e;}
+        
+        .input-wrapper {
+            display: flex; flex-direction: column;
+            padding: 12px 16px;
+            background-color: var(--bg-secondary);
+            z-index: 10;
+        }
+        .toggle-icon {
+            width: 34px; height: 34px; border-radius: 50%;
+            display: inline-flex; align-items: center; justify-content: center;
+            background-color: var(--user-bg);
+            color: var(--text-secondary);
+            cursor: pointer; margin: 0 6px; border: 1px solid #2a2a2a;
+            transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease, transform 0.06s ease;
+        }
+        .toggle-icon.active { background-color: var(--accent); color: #121212; border-color: var(--accent); }
+        .toggle-icon:active { transform: scale(0.98); }
+        #image-preview-container {
+            display: none;
+            position: relative;
+            margin-bottom: 8px;
+            max-width: 100px;
+        }
+        #image-preview {
+            max-width: 100%;
+            border-radius: 8px;
+        }
+        #remove-image-btn {
+            position: absolute;
+            top: -5px; right: -5px;
+            background: #ff4d4d;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 20px; height: 20px;
+            font-size: 12px;
+            cursor: pointer;
+            line-height: 20px;
+            text-align: center;
+        }
+
+        .chat-input-area {
+            display: flex; align-items: center;
+        }
+        #static-avatar { margin-right: 12px; }
+        #message-input {
+            flex: 1; padding: 10px 14px; border: none;
+            border-radius: 20px; background-color: var(--user-bg);
+            color: var(--text-primary); font-size: 1rem; outline: none;
+            margin-left: 8px;
+        }
+        .icon-button {
+            background: none; border: none; color: var(--text-secondary);
+            font-size: 1.5rem; cursor: pointer; padding: 0 4px; margin: 0;
+        }
+        #spotify-panel {
+            position: absolute; bottom: 85px; /* Ajustado por el nuevo input wrapper */
+            left: 0; right: 0;
+            background-color: #282828;
+            padding: 12px 16px;
+            display: flex; align-items: center;
+            transform: translateY(100%);
+            transition: transform 0.3s ease-in-out, opacity 0.3s;
+            opacity: 0;
+            visibility: hidden;
+        }
+        #spotify-panel.visible {
+            transform: translateY(0);
+            opacity: 1;
+            visibility: visible;
+        }
+        #spotify-album-art { width: 48px; height: 48px; border-radius: 8px; margin-right: 12px; }
+        .spotify-track-info { flex-grow: 1; min-width: 0; }
+        #spotify-track-name { font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        #spotify-track-artist { font-size: 0.85rem; color: var(--text-secondary); }
+        .spotify-controls { display: flex; align-items: center; }
+        .spotify-control-btn { font-size: 1.4rem; margin: 0 4px; }
+    </style>
+</head>
+<body>
+    <div class="main-container">
+        <div class="chat-container">
+            <div id="chat-history" class="chat-history">
+                <div id="empty-placeholder"><img src="/img/fondo.png" alt="ByteBuddy" /></div>
+            </div>
+            <div id="spotify-panel">
+                <img id="spotify-album-art" src="" alt="Album Art">
+                <div class="spotify-track-info">
+                    <div id="spotify-track-name">Cargando...</div>
+                    <div id="spotify-track-artist">...</div>
+                </div>
+                <div class="spotify-controls">
+                    <button id="spotify-prev" class="icon-button spotify-control-btn">⏮</button>
+                    <button id="spotify-play-pause" class="icon-button spotify-control-btn">▶️</button>
+                    <button id="spotify-next" class="icon-button spotify-control-btn">⏭</button>
+                </div>
+            </div>
+            <div class="input-wrapper">
+                <div id="image-preview-container">
+                    <img id="image-preview" src="" alt="Vista previa de imagen">
+                    <button id="remove-image-btn">X</button>
+                </div>
+                <div class="chat-input-area">
+                    <input type="file" id="image-input" accept="image/png, image/jpeg" style="display: none;">
+                    <button id="attach-file-btn" class="icon-button" title="Adjuntar imagen">📎</button>
+                    <button id="spotify-toggle-btn" class="icon-button" title="Spotify">🎵</button>
+                    <button id="web-search-toggle" class="toggle-icon" title="Toggle web search" aria-pressed="false">🌐</button>
+                    <input type="text" id="message-input" placeholder="Escribe tu mensaje…" autocomplete="off" />
+                </div>
+            </div>
+        </div>
+    </div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        const chatHistory = document.getElementById("chat-history");
+        const messageInput = document.getElementById("message-input");
+        const placeholder = document.getElementById("empty-placeholder");
+        const spotifyPanel = document.getElementById('spotify-panel');
+        const spotifyToggleBtn = document.getElementById('spotify-toggle-btn');
+        
+        const imageInput = document.getElementById("image-input");
+        const attachFileBtn = document.getElementById("attach-file-btn");
+        const imagePreviewContainer = document.getElementById("image-preview-container");
+        const imagePreview = document.getElementById("image-preview");
+        const removeImageBtn = document.getElementById("remove-image-btn");
+        
+        const socket = io();
+        const webSearchToggle = document.getElementById('web-search-toggle');
+        let allowWebSearch = false;
+
+        function setWebSearchActive(active) {
+            allowWebSearch = !!active;
+            webSearchToggle.classList.toggle('active', allowWebSearch);
+            webSearchToggle.setAttribute('aria-pressed', allowWebSearch ? 'true' : 'false');
+        }
+        webSearchToggle.addEventListener('click', () => setWebSearchActive(!allowWebSearch));
+        let attachedFile = null;
+
+        attachFileBtn.addEventListener('click', () => imageInput.click());
+        
+        imageInput.addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (file) {
+                attachedFile = file;
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    imagePreview.src = e.target.result;
+                    imagePreviewContainer.style.display = 'block';
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+
+        removeImageBtn.addEventListener('click', () => {
+            attachedFile = null;
+            imageInput.value = ''; // Limpiar el input
+            imagePreviewContainer.style.display = 'none';
+        });
+
+        spotifyToggleBtn.addEventListener('click', () => {
+            spotifyPanel.classList.toggle('visible');
+        });
+
+        function appendMessage(sender, text, imageUrl = null) {
+            if (placeholder) placeholder.style.display = "none";
+            const item = document.createElement("div");
+            item.className = `message-item ${sender}`;
+            
+            let avatarHtml = '';
+            if (sender === "assistant") {
+                avatarHtml = `<div class="avatar"><img src="/img/avatar_asistente.gif" alt="Assistant"></div>`;
+            }
+            
+            let imageHtml = '';
+            if (imageUrl) {
+                imageHtml = `<img src="${imageUrl}" alt="Imagen adjunta">`;
+            }
+
+            item.innerHTML = `
+                ${avatarHtml}
+                <div class="message-content">
+                    <div class="bubble">${text}${imageHtml}</div>
+                </div>`;
+            chatHistory.appendChild(item);
+            chatHistory.scrollTop = chatHistory.scrollHeight;
+            return item.querySelector('.bubble');
+        }
+
+        function sendMessage() {
+            const text = messageInput.value.trim();
+            if (!text && !attachedFile) return;
+            const allowWebSearchFlag = allowWebSearch;
+
+            if (attachedFile) {
+                const formData = new FormData();
+                formData.append("message", text);
+                formData.append("image", attachedFile);
+
+                // Muestra el mensaje del usuario con la imagen inmediatamente
+                const tempImageUrl = URL.createObjectURL(attachedFile);
+                appendMessage("user", text, tempImageUrl);
+
+                fetch("/chat_img", {
+                    method: "POST",
+                    body: (() => { formData.append('allow_web_search', allowWebSearchFlag ? 'true' : 'false'); return formData; })()
+                })
+                .then(res => res.json())
+                .then(data => {
+                    appendMessage("assistant", data.response);
+                    // No es necesario revocar la URL temporal aquí si no se usa más.
+                })
+                .catch(err => appendMessage("assistant", "Error de conexión."));
+
+            } else {
+                const userBubble = appendMessage("user", text);
+                const assistantBubble = appendMessage("assistant", "");
+
+                // Iniciar streaming por socket
+                socket.emit('chat_request', { message: text, allow_web_search: allowWebSearchFlag });
+
+                let accumulated = '';
+                socket.off('chat_start');
+                socket.off('chat_delta');
+                socket.off('chat_end');
+                socket.off('chat_error');
+
+                socket.on('chat_start', () => { accumulated = ''; assistantBubble.innerHTML = ''; });
+                socket.on('chat_delta', ({ delta }) => {
+                    accumulated += (delta || '');
+                    assistantBubble.innerHTML = accumulated;
+                    chatHistory.scrollTop = chatHistory.scrollHeight;
+                });
+                socket.on('chat_end', ({ message }) => {
+                    assistantBubble.innerHTML = message || accumulated;
+                });
+                socket.on('chat_error', ({ error }) => {
+                    assistantBubble.innerHTML = `<div>Se produjo un error en el streaming.<br><small>${(error||'')}</small></div>`;
+                });
+
+                // Fallback HTTP si el backend no soporta streaming
+                /*fetch("/chat", {
+                    method: "POST", headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ message: text, allow_web_search: allowWebSearchFlag })
+                })
+                .then(res => res.json())
+                .then(data => assistantBubble.innerHTML = data.response)
+                .catch(err => assistantBubble.innerHTML = "Error de conexión.");*/
+            }
+            
+            messageInput.value = "";
+            removeImageBtn.click(); // Limpia la preview y el archivo adjunto
+        }
+
+        messageInput.addEventListener("keypress", e => { if (e.key === "Enter") sendMessage(); });
+        
+        function updateSpotifyUI(track) {
+            const art = document.getElementById('spotify-album-art');
+            const name = document.getElementById('spotify-track-name');
+            const artist = document.getElementById('spotify-track-artist');
+            const playPauseBtn = document.getElementById('spotify-play-pause');
+
+            if (track && track.name) {
+                art.src = track.album_img || '';
+                name.textContent = track.name;
+                artist.textContent = track.artists;
+                playPauseBtn.textContent = track.is_playing ? '⏸️' : '▶️';
+            } else {
+                art.src = '';
+                name.textContent = 'No hay nada sonando';
+                artist.textContent = '...';
+                playPauseBtn.textContent = '▶️';
+            }
+        }
+
+        function controlSpotify(action) {
+            fetch('/spotify/control', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: action })
+            });
+        }
+
+        socket.on('spotify_update', updateSpotifyUI);
+        document.getElementById('spotify-play-pause').addEventListener('click', () => controlSpotify('play_pause'));
+        document.getElementById('spotify-prev').addEventListener('click', () => controlSpotify('previous'));
+        document.getElementById('spotify-next').addEventListener('click', () => controlSpotify('next'));
+    });
+
+    window.addEventListener('pywebviewready', () => {
+        if (window.pywebview && window.pywebview.api) {
+            // Ocultar al perder el foco
+            window.addEventListener('blur', () => {
+                window.pywebview.api.hide_window();
+            });
+        }
+    });
+</script>
+</body>
+</html>
